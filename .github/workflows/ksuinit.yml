@@ -1,4 +1,4 @@
-name: Build ksuinit
+name: name: Build ksuinit
 on:
   workflow_call:
     inputs:
@@ -6,6 +6,14 @@ on:
         required: false
         type: string
         default: ubuntu-latest
+  # 新增下面这两行：允许手动触发
+  workflow_dispatch:
+    inputs:
+      os:
+        description: 'Operating System'
+        required: false
+        type: string
+        default: 'ubuntu-latest'
 jobs:
   build:
     runs-on: ${{ inputs.os }}
