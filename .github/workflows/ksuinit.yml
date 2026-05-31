@@ -1,4 +1,5 @@
-name: name: Build ksuinit
+name: Build ksuinit
+
 on:
   workflow_call:
     inputs:
@@ -6,7 +7,6 @@ on:
         required: false
         type: string
         default: ubuntu-latest
-  # 新增下面这两行：允许手动触发
   workflow_dispatch:
     inputs:
       os:
@@ -14,9 +14,10 @@ on:
         required: false
         type: string
         default: 'ubuntu-latest'
+
 jobs:
   build:
-    runs-on: ${{ inputs.os }}
+    runs-on: ${{ inputs.os || 'ubuntu-latest' }}
     steps:
     - uses: actions/checkout@v6
       with:
