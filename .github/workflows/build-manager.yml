@@ -165,7 +165,7 @@ jobs:
 
       - name: Build with Gradle
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
             ./gradlew clean assembleRelease -PIS_PR_BUILD=true
           else
             ./gradlew clean assembleRelease
