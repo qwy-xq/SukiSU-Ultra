@@ -26,7 +26,6 @@ on:
       - 'kernel/**'
       - 'userspace/**'
   workflow_call:
-  # 👇 这里为你新增了手动触发开关
   workflow_dispatch:
 
 jobs:
@@ -40,7 +39,7 @@ jobs:
       key_password: ${{ steps.gen.outputs.key_password }}
     steps:
       - name: Generate temporary keystore
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         id: gen
         run: |
           KEYSTORE_PASSWORD=$(openssl rand -hex 32)
@@ -61,7 +60,7 @@ jobs:
           echo "keystore=$(base64 -w 0 pr-key.jks)" >> $GITHUB_OUTPUT
 
       - name: Extract certificate hash and size
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         id: extract
         env:
           STORE_PASS: ${{ steps.gen.outputs.keystore_password }}
@@ -125,7 +124,7 @@ jobs:
           fetch-depth: 0
 
       - name: Write key
-        if: ${{ ( github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' )) || github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' }}
+        if: ${{ ( github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' )) || github.ref_type == 'tag' }}
         run: |
           if [ ! -z "${{ secrets.KEYSTORE }}" ]; then
             {
@@ -138,7 +137,7 @@ jobs:
           fi
 
       - name: Write PR key
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         env:
           PR_KEYSTORE: ${{ needs.generate-key.outputs.keystore }}
           PR_KEYSTORE_PASSWORD: ${{ needs.generate-key.outputs.keystore_password }}
@@ -166,7 +165,7 @@ jobs:
 
       - name: Build with Gradle
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             ./gradlew clean assembleRelease -PIS_PR_BUILD=true
           else
             ./gradlew clean assembleRelease
@@ -264,29 +263,19 @@ jobs:
           PROD_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           PROD_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "$PR_KEYSTORE" | base64 -d > pr-key.jks
             echo "SIGN_KEYSTORE_FILE=pr-key.jks" >> $GITHUB_ENV
             echo "SIGN_KEY_ALIAS=pr-key" >> $GITHUB_ENV
             echo "SIGN_KEYSTORE_PASSWORD=$PR_KEYSTORE_PASSWORD" >> $GITHUB_ENV
             echo "SIGN_KEY_PASSWORD=$PR_KEY_PASSWORD" >> $GITHUB_ENV
           else
-            # 如果没有配置正式签名秘钥，默认使用测试签名（为了让普通用户也能构建成功）
-            if [ -z "$PROD_KEYSTORE" ]; then
-              echo "No prod keystore found, falling back to PR temporary keystore..."
-              echo "$PR_KEYSTORE" | base64 -d > pr-key.jks
-              echo "SIGN_KEYSTORE_FILE=pr-key.jks" >> $GITHUB_ENV
-              echo "SIGN_KEY_ALIAS=pr-key" >> $GITHUB_ENV
-              echo "SIGN_KEYSTORE_PASSWORD=$PR_KEYSTORE_PASSWORD" >> $GITHUB_ENV
-              echo "SIGN_KEY_PASSWORD=$PR_KEY_PASSWORD" >> $GITHUB_ENV
-            else
-              test -n "$PROD_KEYSTORE"
-              echo "$PROD_KEYSTORE" | base64 -d > key.jks
-              echo "SIGN_KEYSTORE_FILE=key.jks" >> $GITHUB_ENV
-              echo "SIGN_KEY_ALIAS=$PROD_KEY_ALIAS" >> $GITHUB_ENV
-              echo "SIGN_KEYSTORE_PASSWORD=$PROD_KEYSTORE_PASSWORD" >> $GITHUB_ENV
-              echo "SIGN_KEY_PASSWORD=$PROD_KEY_PASSWORD" >> $GITHUB_ENV
-            fi
+            test -n "$PROD_KEYSTORE"
+            echo "$PROD_KEYSTORE" | base64 -d > key.jks
+            echo "SIGN_KEYSTORE_FILE=key.jks" >> $GITHUB_ENV
+            echo "SIGN_KEY_ALIAS=$PROD_KEY_ALIAS" >> $GITHUB_ENV
+            echo "SIGN_KEYSTORE_PASSWORD=$PROD_KEYSTORE_PASSWORD" >> $GITHUB_ENV
+            echo "SIGN_KEY_PASSWORD=$PROD_KEY_PASSWORD" >> $GITHUB_ENV
           fi
 
       - name: Repack and resign
@@ -310,30 +299,3 @@ jobs:
         with:
           name: manager
           path: dist/*.apk
-
-      - name: Bot session cache
-        if: github.event_name != 'pull_request' && steps.need_upload.outputs.UPLOAD == 'true'
-        id: bot_session_cache
-        uses: actions/cache@v5
-        with:
-          path: scripts/ksubot.session
-          key: ${{ runner.os }}-bot-session
-
-      - name: Upload to telegram
-        if: github.event_name != 'pull_request' && steps.need_upload.outputs.UPLOAD == 'true'
-        env:
-          CHAT_ID: ${{ secrets.CHAT_ID }}
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          MESSAGE_THREAD_ID: ${{ secrets.MESSAGE_THREAD_ID }}
-          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
-          COMMIT_URL: ${{ github.event.head_commit.url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          TITLE: Manager
-          BRANCH: ${{ github.ref_name }}
-        run: |
-          if [ ! -z "${{ secrets.BOT_TOKEN }}" ]; then
-            export VERSION=$(git rev-list --count HEAD)
-            APK=$(find ./dist -name "*.apk")
-            pip3 install telethon
-            python3 $GITHUB_WORKSPACE/scripts/ksubot.py $APK
-          fi
